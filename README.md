@@ -1,107 +1,95 @@
-# Antigravity Helper
+# Antigravity Skill for Codex
 
 [简体中文](README.zh-CN.md)
 
-A Codex skill for coordinating native subagents and the official Antigravity CLI on Windows. It provides task-routing instructions, current model and quota queries, and a PowerShell runner with structured results, isolated run records, timeouts, and cancellation.
+Delegate tasks from Codex to Antigravity. This Windows skill uses the official Antigravity CLI (`agy`) to run scoped tasks, request independent reviews, and resume conversations from Codex.
 
 ## Capabilities
 
-- Select the main agent, native Codex subagents, Antigravity, or a combination according to task requirements.
-- Query the model IDs and quota information exposed by the installed `agy` CLI.
-- Send UTF-8 task descriptions through NDJSON standard input rather than shell interpolation.
-- Preserve explicit conversation IDs for continuation.
-- Record CLI events, diagnostics, and final results for independent verification.
-- Report missing results, model mismatches, nonzero exits, timeouts, cancellation, and detected permission denials.
+- Look up the model IDs and quota windows available to the authenticated CLI.
+- Submit UTF-8 task descriptions and resume conversations by explicit ID.
+- Verify the reported model and conversation ID against the request.
+- Record each run independently and support timeouts, cancellation, and process-tree cleanup.
 
-The project does not provide model access, redistribute the Antigravity executable, or implement account pooling. Claude access through Antigravity is distinct from the standalone Claude Code product, which is not integrated here.
+Codex defines the task scope and verifies the result. This project is maintained independently. Access to Antigravity and its models depends on the official CLI and your account.
 
 ## Requirements
 
 | Component | Requirement |
-|---|---|
+| --- | --- |
 | Operating system | Windows 10 or Windows 11 |
 | Runtime | PowerShell 7.4 or later (`pwsh`) |
-| External agent | Official Antigravity CLI, installed and authenticated |
-| Host | A local Codex environment supporting user skills |
-| Tests only | Python 3.10 or later; no third-party Python packages |
-
-The initial live integration was verified with Antigravity CLI 1.3.5. CLI output formats and available models can change independently of this project. The runner's `plan` mode is not an operating-system sandbox.
+| Antigravity | Official CLI, installed and authenticated |
+| Codex | A local environment that supports user skills |
+| Offline tests | Python 3.10 or later, using the standard library |
 
 ## Installation
 
-Install and authenticate the CLI using the [official Antigravity instructions](https://antigravity.google/docs/cli/install/). Then clone and install this skill from PowerShell:
+Install and authenticate the CLI using the [Antigravity documentation](https://antigravity.google/docs/getting-started?tab=cli). Run the following commands in PowerShell.
 
 ```powershell
-git clone https://github.com/weixiubo/antigravity-helper.git
-Set-Location antigravity-helper
+git clone https://github.com/weixiubo/antigravity-for-codex.git
+Set-Location antigravity-for-codex
 pwsh -NoProfile -File ./Install-Skill.ps1
 ```
 
-The installer copies the runtime files to `$CODEX_HOME/skills/antigravity-helper`, or `$HOME/.codex/skills/antigravity-helper` when `CODEX_HOME` is unset. It does not change `AGENTS.md`, account settings, or the CLI installation. Existing destinations are left intact unless `-Replace` is supplied; replacements create a sibling ZIP backup before updating packaged files. Other files in the destination are preserved.
+The default destination is `$CODEX_HOME/skills/antigravity-for-codex`. When `CODEX_HOME` is unset, the installer uses `%USERPROFILE%\.codex\skills\antigravity-for-codex`.
 
-For a custom destination:
+Use `-Destination` to install to a custom skill location. The destination directory must be named `antigravity-for-codex` and must be discoverable by Codex.
 
 ```powershell
-pwsh -NoProfile -File ./Install-Skill.ps1 -Destination 'C:\Tools\codex-skills\antigravity-helper'
+pwsh -NoProfile -File ./Install-Skill.ps1 -Destination 'C:\Tools\codex-skills\antigravity-for-codex'
 ```
 
-A custom destination must be configured as a discoverable skill location in the host. Refresh the skill list or restart Codex if the new skill is not visible. Only install one discoverable copy with this skill name.
+Use `-Replace` to update an installation under the current name. The installer verifies the staged files, creates a ZIP backup, and preserves local additions.
 
-## Usage in Codex
+### Migrate an existing installation
 
-Invoke the skill explicitly:
+Install the current skill, then move the former `antigravity-helper` directory out of Codex's skill locations. Keep a backup if you have local additions. Update saved prompts and scripts to use `$antigravity-for-codex` and the new installation path. Start a new Codex session to load the current skill metadata.
+
+## Use in Codex
 
 ```text
-Use $antigravity-helper to obtain an independent review of this change and verify the findings.
+Use $antigravity-for-codex to delegate a review of the current patch to Antigravity. Verify the findings against the diff.
 ```
 
-Automatic selection is enabled. Codex can select the skill for useful parallel investigation, bounded delegation, or cross-model review. Selection depends on the host and task; it is not guaranteed for every prompt. Native subagents remain subject to the tools and permissions provided by the host.
+Codex can also select the skill automatically when the task matches its description and the host provides skill discovery.
 
-## Direct script usage
+## Use the scripts directly
 
-These examples run from the repository root in PowerShell 7.4 or later:
+Query the model list and quota from the repository root.
 
 ```powershell
 $workspace = (Get-Location).Path
 $info = & ./scripts/Get-AntigravityInfo.ps1 -Action All -Workspace $workspace |
     ConvertFrom-Json
-if ($info.status -ne 'SUCCESS') { throw 'Inspect the query result before selecting a model.' }
+if (-not $info.models) { throw 'Inspect the model query before selecting an ID.' }
 $info.models | Format-Table id, name
 $info.quota | Format-Table group, window, remaining, resets_at
 ```
 
-Choose an ID returned by the query, then submit a task:
+Select a model ID returned by the query.
 
 ```powershell
-$modelId = Read-Host 'Model ID from the current list'
+$modelId = Read-Host 'Enter a model ID from the list'
 $run = & ./scripts/Invoke-Antigravity.ps1 `
-    -Prompt 'Explain the purpose of this project. Do not change files.' `
+    -Prompt 'Review the current patch for correctness. Do not edit files.' `
     -Model $modelId -Workspace $workspace -Mode plan | ConvertFrom-Json
-$run | Select-Object status, reported_model, model_verified, response, run_directory
+$run | Select-Object status, reported_model, model_verified, run_directory
 ```
 
-For a file-editing task, supply a UTF-8 task file and `-Mode accept-edits`. Review the returned status and independently verify the produced changes before accepting the task.
-
-See [Script reference](docs/script-reference.md) for parameters, result fields, continuation, and cancellation.
+Use `-PromptFile` for a UTF-8 task description and `-Mode accept-edits` when file edits are authorized. Review the result and verify any changes in the workspace. See the [script reference](docs/script-reference.md) for parameters, conversation continuation, and cancellation.
 
 ## Validation
-
-Run the offline test suite:
 
 ```powershell
 python -m unittest discover -s tests -v
 ```
 
-The tests use a local fixture process and do not require a Google account or consume model quota. They cover process I/O, result classification, timeouts, cancellation, concurrent runs, and installation. GitHub Actions runs the same suite on Windows.
+The offline suite uses local fixtures to verify execution, query parsing, concurrency, and installation. See [testing](docs/testing.md) for live validation.
 
-Offline tests validate the integration machinery. Actual model availability, authentication, quota, and output quality require a live check with the user's own account. See [Testing](docs/testing.md).
+## Data and license
 
-## Data handling and service access
+Antigravity tasks are sent to the service configured in the official CLI. Review and redact local run records before sharing them. See [security and data handling](SECURITY.md).
 
-Task content is sent to the service selected by the official CLI. Local run records can contain task content, file paths, and model responses. Do not publish these records without reviewing them. See [Security and data handling](SECURITY.md).
-
-This is an independent community project, not an OpenAI or Google product. The MIT license covers this repository's code and documentation; it does not grant service access or override [Antigravity's terms](https://antigravity.google/terms).
-
-## Contributing and license
-
-See [Contributing](CONTRIBUTING.md) for development and review requirements. This project is distributed under the [MIT License](LICENSE).
+See the [contribution guide](CONTRIBUTING.md) and the [MIT License](LICENSE). Antigravity service access is governed by the [Antigravity Terms of Service](https://antigravity.google/terms).

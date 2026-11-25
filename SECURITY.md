@@ -2,9 +2,9 @@
 
 ## Trust boundaries
 
-The scripts start the official Antigravity CLI with the current user's operating-system permissions. They are not a sandbox. Agent instructions such as `plan` and file-ownership constraints guide execution but do not replace operating-system access controls.
+The scripts start the official Antigravity CLI with the current user's operating-system permissions. Windows Job Objects govern process lifetime. Agent instructions such as `plan` and file ownership guide execution. Operating-system permissions govern filesystem access.
 
-Only run tasks in workspaces whose contents and local tool configuration are appropriate for the intended operation. Model output and repository content can contain untrusted instructions; the main agent remains responsible for accepting results and authorizing actions within the user's task.
+Run tasks in workspaces whose contents and tool configuration are appropriate for the intended operation. Verify returned results and repository instructions against the authorized task scope.
 
 ## Authentication and external services
 
@@ -12,9 +12,9 @@ The official CLI manages authentication. This project does not read credential f
 
 ## Local records
 
-Run records may contain source excerpts, task content, absolute paths, model responses, and diagnostic details. They are written to the selected workspace or record directory, not uploaded by the wrapper. The CLI sends task data to its configured service and may maintain its own state separately.
+The wrapper stores run records in the selected workspace or record directory. Records can contain source excerpts, task content, absolute paths, model responses, and diagnostics. The CLI submits task data to its configured service and can maintain its own state separately.
 
-The default run directory is excluded from this repository's version control. That exclusion does not automatically apply to another project's Git configuration. Review that project's ignore rules before running the tool there. Review and redact diagnostics before sharing them.
+The default run directory is excluded from this repository's version control. Set `-RecordDirectory` outside other Git worktrees to keep local records out of their diffs. Review and redact diagnostics before sharing them.
 
 ## Reporting a vulnerability
 

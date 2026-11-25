@@ -10,7 +10,7 @@ Tests must run from the repository without relying on an installed user skill or
 
 ## Pull requests
 
-Describe the problem, resulting behavior, and relevant validation. Keep changes focused and document any change to parameters or JSON fields. Public documentation must address users or contributors directly and must not contain conversational history, drafting notes, self-evaluation, or unfinished sections. Keep the English and Simplified Chinese README files consistent.
+Describe the problem, resulting behavior, and reproducible validation. Keep changes focused and document any changes to parameters or JSON fields. Write public documentation for users and contributors, use synthetic examples when needed, and keep the English and Simplified Chinese README files consistent.
 
 Do not add automatic credential extraction, account rotation, global permission bypass, or unrequested modifications to `AGENTS.md`. Changes must preserve explicit model selection, run isolation, and honest reporting of incomplete results.
 

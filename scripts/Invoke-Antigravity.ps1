@@ -14,20 +14,29 @@ param(
 )
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'Common.ps1')
+
 $runDirectory=$null
 $result=$null
+$logErrors=[Collections.Generic.List[string]]::new()
 try {
     if (-not $IsWindows) { throw 'This skill targets the logged-in Windows host; do not silently route to a remote or WSL installation.' }
     $executable=Resolve-AgyExecutable $CliPath
-    $resolvedWorkspace=(Resolve-Path -LiteralPath $Workspace).Path
-    if (-not (Test-Path -LiteralPath $resolvedWorkspace -PathType Container)) { throw 'Workspace must be an existing directory.' }
+    $resolvedWorkspace=Resolve-AgyWorkspace $Workspace
     $seconds=ConvertTo-AgyTimeoutSeconds $Timeout
     if ($PSCmdlet.ParameterSetName -eq 'File') { $Prompt=Get-Content -LiteralPath $PromptFile -Raw -Encoding utf8 }
     if ([string]::IsNullOrWhiteSpace($Prompt)) { throw 'The task prompt is empty.' }
-    $recordRoot=if ($RecordDirectory) { $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($RecordDirectory) } else { Join-Path $resolvedWorkspace 'work\antigravity' }
+    if ($PSBoundParameters.ContainsKey('ConversationId') -and [string]::IsNullOrWhiteSpace($ConversationId)) {
+        throw 'ConversationId must be nonempty when supplied.'
+    }
+    $recordRoot=Join-Path $resolvedWorkspace 'work\antigravity'
+    if ($RecordDirectory) {
+        $provider=$null
+        $drive=$null
+        $recordRoot=$ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($RecordDirectory, [ref]$provider, [ref]$drive)
+        if ($provider.Name -ne 'FileSystem') { Throw-AgySetupError 'invalid_record_directory' 'RecordDirectory must be a filesystem path.' }
+    }
     $runId=[DateTimeOffset]::UtcNow.ToString('yyyyMMddTHHmmssfffZ') + '-' + [guid]::NewGuid().ToString('N')
     $runDirectory=Join-Path $recordRoot $runId
-    New-Item -ItemType Directory -Path $runDirectory -Force | Out-Null
     $cancelFile=Join-Path $runDirectory 'cancel'
     $request=[ordered]@{
         run_id=$runId; started_at=[DateTimeOffset]::UtcNow.ToString('o'); workspace=$resolvedWorkspace
@@ -35,26 +44,51 @@ try {
         prompt_characters=$Prompt.Length
         prompt_sha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($Prompt)))
     }
-    $request | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $runDirectory 'request.json') -Encoding utf8
-    @{status='RUNNING'; run_id=$runId; cancel_file=$cancelFile} | ConvertTo-Json |
-        Set-Content -LiteralPath (Join-Path $runDirectory 'result.json') -Encoding utf8
+    try {
+        [void][IO.Directory]::CreateDirectory($runDirectory)
+        Write-AgyJsonFile (Join-Path $runDirectory 'request.json') $request
+        Write-AgyJsonFile (Join-Path $runDirectory 'result.json') @{status='RUNNING'; run_id=$runId; cancel_file=$cancelFile}
+    } catch {
+        $logErrors.Add($_.Exception.Message)
+        Throw-AgySetupError 'log_write_failed' 'Could not initialize local run records.'
+    }
     [Console]::Error.WriteLine("Antigravity run: $runDirectory")
-    $arguments=@($CliPrefixArguments) + @('--input-format','stream-json','--output-format','stream-json','--model',$Model,'--mode',$Mode,'--print-timeout',"$([math]::Ceiling($seconds))s")
+    $arguments=@($CliPrefixArguments) + @('--input-format','stream-json','--output-format','stream-json','--model',$Model,'--mode',$Mode,'--print-timeout',$Timeout.ToLowerInvariant())
     if ($ConversationId) { $arguments+=@('--conversation',$ConversationId) }
     $inputLine=@{event='user'; message=@{content=$Prompt}} | ConvertTo-Json -Depth 4 -Compress
     $processResult=Invoke-AgyProcess -FilePath $executable -ArgumentList $arguments -Workspace $resolvedWorkspace -InputLine $inputLine -TimeoutSeconds ($seconds+10) -RunDirectory $runDirectory -CancelFile $cancelFile
-    $result=ConvertFrom-AgyRun -ProcessResult $processResult -RequestedModel $Model
+    $logErrors.AddRange($processResult.log_errors)
+    $result=ConvertFrom-AgyRun -ProcessResult $processResult -RequestedModel $Model -RequestedConversation $ConversationId
     $result['run_id']=$runId
     $result['workspace']=$resolvedWorkspace
     $result['mode']=$Mode
     $result['run_directory']=$runDirectory
     $result['logs']=@{events=(Join-Path $runDirectory 'events.jsonl'); stderr=(Join-Path $runDirectory 'stderr.txt')}
 } catch {
-    $result=[ordered]@{status='ERROR'; error_kind='setup'; error=$_.Exception.Message; run_directory=$runDirectory}
+    $errorKind=if ($_.Exception.Data['AgyErrorKind']) { $_.Exception.Data['AgyErrorKind'] } else { 'setup' }
+    $result=[ordered]@{status='ERROR'; error_kind=$errorKind; error=$_.Exception.Message; run_directory=$runDirectory}
 } finally {
     if (-not $result) { $result=[ordered]@{status='CANCELLED'; error_kind='interrupted'; run_directory=$runDirectory} }
     $result['finished_at']=[DateTimeOffset]::UtcNow.ToString('o')
-    if ($runDirectory) { $result | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $runDirectory 'result.json') -Encoding utf8 }
+    if ($logErrors.Count) {
+        $result['log_errors']=$logErrors.ToArray()
+        if ($result['status'] -eq 'SUCCESS') {
+            $result['status']='ERROR'
+            $result['error_kind']='log_write_failed'
+            $result['error']='Could not persist all local run records.'
+        }
+    }
+    if ($runDirectory -and [IO.Directory]::Exists($runDirectory)) {
+        try { Write-AgyJsonFile (Join-Path $runDirectory 'result.json') $result } catch {
+            $logErrors.Add("result.json: $($_.Exception.Message)")
+            $result['log_errors']=$logErrors.ToArray()
+            if ($result['status'] -eq 'SUCCESS') {
+                $result['status']='ERROR'
+                $result['error_kind']='log_write_failed'
+                $result['error']='Could not persist the final run result.'
+            }
+        }
+    }
 }
 $result | ConvertTo-Json -Depth 20
 if ($result['status'] -eq 'SUCCESS') { exit 0 }
