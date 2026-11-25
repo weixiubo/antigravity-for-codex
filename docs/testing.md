@@ -12,7 +12,7 @@ Requirements are Windows, PowerShell 7.4 or later on `PATH`, and Python 3.10 or 
 
 The suite covers Unicode and long inputs, CLI protocol and conversation validation, diagnostic classification, process-tree cleanup, atomic final results, concurrent runs, query validation, and installation rollback.
 
-Artifacts are written beneath `.test-output` and are excluded from version control. `ANTIGRAVITY_FOR_CODEX_TEST_ROOT` may select another artifact root. Test results contain local paths and should be reviewed before sharing.
+Each run writes artifacts to a separate directory under `antigravity-for-codex-tests` in the system temporary directory. Set `ANTIGRAVITY_FOR_CODEX_TEST_ROOT` to select another location outside the repository. Review test results for local paths before sharing.
 
 ## Live validation
 

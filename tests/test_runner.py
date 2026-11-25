@@ -10,6 +10,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 import uuid
@@ -17,7 +18,8 @@ import uuid
 REPOSITORY = Path(__file__).resolve().parents[1]
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 PWSH = shutil.which("pwsh")
-ARTIFACTS = Path(os.environ.get("ANTIGRAVITY_FOR_CODEX_TEST_ROOT", str(REPOSITORY / ".test-output"))) / uuid.uuid4().hex
+DEFAULT_ARTIFACT_ROOT = Path(tempfile.gettempdir()) / "antigravity-for-codex-tests"
+ARTIFACTS = Path(os.environ.get("ANTIGRAVITY_FOR_CODEX_TEST_ROOT", DEFAULT_ARTIFACT_ROOT)) / uuid.uuid4().hex
 
 
 def prepare(name, mode="success", prompt="Unicode: 中文\nQuoted: \"value\"", timeout="5s", action=None):
