@@ -146,7 +146,9 @@ class RunnerTests(unittest.TestCase):
         case[3].write_text(json.dumps(config), encoding="utf-8")
         completed, result = execute(case)
         self.assertEqual(completed.returncode, 0, result)
-        self.assertEqual(Path(result["run_directory"]).parent, case[0] / ".records")
+        records = Path(result["run_directory"]).parent
+        expected = case[0] / ".records"
+        self.assertTrue(records.samefile(expected), f"{records} != {expected}")
 
     def test_missing_result(self):
         _, result = execute(prepare("missing", "missing"))

@@ -151,5 +151,6 @@ exit 1
                                     "-CaseFile", str(case)], capture_output=True, text=True,
                                    encoding="utf-8", timeout=30)
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertEqual(Path(json.loads(completed.stdout)["destination"]), self.destination)
+        installed = Path(json.loads(completed.stdout)["destination"])
+        self.assertTrue(installed.samefile(self.destination), f"{installed} != {self.destination}")
         self.assertTrue((self.destination / "SKILL.md").is_file())
